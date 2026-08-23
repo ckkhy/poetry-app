@@ -585,11 +585,15 @@ def run_ai_pipeline(title: str, poem: dict, model_name: str, img_quality: str, i
     image_payload = None
     used_simulation_for_image = False
     try:
-        with st.spinner("🎨 무료 AI가 수묵산수화를 그리는 중입니다..."):
+        # 🎨 스피너 문구도 "시의 내용에 맞는 이미지를 그리는 중입니다..."로 변경합니다.
+        with st.spinner("🎨 시의 내용에 맞는 이미지를 그리는 중입니다..."):
             import urllib.parse
-            # 시의 내용을 먼저 강조하고, 뒤에 수묵화 스타일을 덧붙입니다.
-            final_prompt = f"{dalle_prompt}, Korean ink wash painting style, delicate brushwork, misty atmosphere"
-            encoded_prompt = urllib.parse.quote(final_prompt)
+            
+            # ⭐ 핵심 수정: f"Traditional Korean ink wash painting, {dalle_prompt}" 나 덧붙이는 스타일 없이
+            # 오직 dalle_prompt(시의 내용 분석)만 사용하여 URL 인코딩 ⭐
+            # 만약 dalle_prompt 내에 'photorealistic'이나 'anime style' 등이 포함되어 있다면 해당 스타일로 생성될 것입니다.
+            encoded_prompt = urllib.parse.quote(dalle_prompt)
+            
             url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
             image_payload = {"type": "url", "data": url}
     except Exception as e:
