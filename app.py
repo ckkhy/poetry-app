@@ -13,9 +13,16 @@ Streamlit Community Cloud 배포용으로 작성되었습니다.
 
 import json
 import textwrap
+import hashlib
+import urllib.parse
 from datetime import datetime
 
 import streamlit as st
+
+try:
+    import requests
+except ImportError:  # requests 미설치 시에도 앱이 죽지 않도록 처리 (검증 단계만 생략)
+    requests = None
 
 try:
     from openai import OpenAI
@@ -307,6 +314,8 @@ if "image_cache" not in st.session_state:
     st.session_state.image_cache = {}
 if "last_error" not in st.session_state:
     st.session_state.last_error = {}
+if "regen_count" not in st.session_state:
+    st.session_state.regen_count = {}
 
 
 # ============================================================================
@@ -479,6 +488,114 @@ def build_simulation_analysis(poem: dict, title: str) -> dict:
 
 
 # ============================================================================
+# 5-1. 시대(연도) · 갈래별 화풍 매핑 — 무료 이미지 생성 품질 향상용
+# ============================================================================
+# 무료 이미지 생성기(Pollinations 등)는 한국어 이해도가 낮고 프롬프트가 짧을수록
+# 결과가 부정확해지는 경향이 있다. 따라서 (1) 실제 역사적 연도/왕조를 영어로 명시하고
+# (2) 갈래별 화풍 키워드를 덧붙여 프롬프트를 더 구체적이고 일관되게 만든다.
+ERA_YEAR_MAP = {
+    "삼국(백제)": "Baekje Kingdom, Korea, 7th century CE (Three Kingdoms period, c. 18 BCE - 660 CE)",
+    "신라 경덕왕": "Unified Silla Dynasty, Korea, mid-8th century CE (reign of King Gyeongdeok, 742-765 CE)",
+    "신라 성덕왕": "Unified Silla Dynasty, Korea, early 8th century CE (reign of King Seongdeok, 702-737 CE)",
+    "신라 헌강왕": "Unified Silla Dynasty, Korea, late 9th century CE (reign of King Heongang, 875-886 CE)",
+    "고려": "Goryeo Dynasty, Korea, 10th-14th century CE (918-1392 CE)",
+    "고려 말": "Late Goryeo Dynasty, Korea, 14th century CE (final decades before 1392 CE)",
+    "조선": "Joseon Dynasty, Korea, 15th-19th century CE (1392-1897 CE)",
+}
+
+GENRE_STYLE_MAP = {
+    "향가": "ancient Silla aesthetic reminiscent of weathered stone reliefs and Buddhist temple murals, "
+            "warm ochre and stone-grey tones, timeworn textures, archaic and sacred atmosphere",
+    "고려가요": "Goryeo Buddhist temple mural and folk-song aesthetic, muted indigo and jade-green tones, "
+                "rhythmic repeating patterns, folk narrative mood",
+    "시조": "Joseon literati ink wash landscape painting (sumukhwa), restrained monochrome brushwork, "
+            "generous negative space (yeobaek), scholarly and contemplative mood",
+    "가사": "Joseon scholar's panoramic ink wash scroll (sumukhwa), sweeping travel-diary composition, "
+            "delicate brush texture, elegant hanging-scroll format",
+}
+
+
+def get_era_context(period: str) -> str:
+    """작품의 시대 정보를 실제 연도가 포함된 영문 설명으로 변환."""
+    return ERA_YEAR_MAP.get(period, f"traditional pre-modern Korea, historical period: {period}")
+
+
+def get_genre_style(genre: str) -> str:
+    """갈래에 어울리는 화풍 키워드를 영문으로 반환."""
+    return GENRE_STYLE_MAP.get(genre, "traditional Korean ink wash painting (sumukhwa)")
+
+
+def build_free_image_prompt(poem: dict, title: str, analysis_data: dict) -> str:
+    """무료 이미지 생성(Pollinations 등)을 위한 고품질 영문 프롬프트를 구성한다.
+
+    - GPT(또는 시뮬레이션) 분석에서 나온 공간 구도(원경·중경·근경)와 정서를 반영해
+      한글 원문/설명을 그대로 섞지 않고 전부 영어로 재구성한다 (한글 혼입 시 무료 생성기
+      결과 품질이 크게 떨어지기 때문).
+    - 작품의 실제 시대(연도)와 갈래별 화풍을 명시해 시대 고증과 완성도를 높인다.
+    """
+    analysis_data = analysis_data or {}
+    sc = analysis_data.get("spatial_composition", {}) or {}
+    emotion = analysis_data.get("emotion", "") or ""
+
+    era_context = get_era_context(poem["period"])
+    genre_style = get_genre_style(poem["genre"])
+
+    # GPT(또는 시뮬레이션)가 이미 만들어 둔 영문 프롬프트를 기본 뼈대로 활용
+    base = (analysis_data.get("dalle_prompt") or "").strip()
+    if not base:
+        base = (
+            "A traditional Korean ink wash landscape painting (sumukhwa) depicting layered "
+            "mountains in the distance, a winding river in the middle ground, and pine trees "
+            "or a small pavilion in the foreground."
+        )
+
+    prompt = (
+        f"{base} "
+        f"Historical setting: {era_context}. "
+        f"Artistic style: {genre_style}. "
+        f"Composition — background: distant misty mountains and sky; "
+        f"middle ground: a river, path, or open field; "
+        f"foreground: pine trees, plum blossoms, or a solitary figure in traditional hanbok. "
+        f"Overall mood: {emotion if emotion else 'quiet, contemplative, poetic'}. "
+        f"Monochrome or muted ink tones, rice-paper texture, elegant brushstrokes, "
+        f"generous negative space, historically accurate traditional Korean setting. "
+        f"No modern buildings, no cars, no modern clothing, no English or Korean text, "
+        f"no watermark, no signature. Museum-quality traditional East Asian ink painting, "
+        f"highly detailed, masterpiece."
+    )
+    return prompt
+
+
+def build_free_image_url(prompt: str, title: str) -> str:
+    """Pollinations AI(무료)로 이미지 URL을 생성.
+
+    - 같은 작품이라도 '다시 분석하기'를 누를 때마다 새로운 결과가 나오도록 시드를 변화시킨다.
+    - Python 내장 hash()는 프로세스마다 값이 달라질 수 있어 hashlib로 안정적인 시드를 만든다.
+    - flux 모델 + enhance 옵션으로 화질과 프롬프트 이해도를 높인다.
+    - 서버 측에서 짧게 상태를 확인해, 무료 서비스 자체가 불안정할 때는 예외를 발생시켜
+      상위 파이프라인이 로컬 시뮬레이션으로 자동 전환하도록 한다.
+    """
+    if "regen_count" not in st.session_state:
+        st.session_state.regen_count = {}
+    st.session_state.regen_count[title] = st.session_state.regen_count.get(title, 0) + 1
+    seed_source = f"{title}_{st.session_state.regen_count[title]}"
+    seed = int(hashlib.md5(seed_source.encode("utf-8")).hexdigest(), 16) % 10_000_000
+
+    encoded_prompt = urllib.parse.quote(prompt)
+    url = (
+        f"https://image.pollinations.ai/prompt/{encoded_prompt}"
+        f"?width=1024&height=1024&seed={seed}&model=flux&nologo=true&enhance=true&safe=true"
+    )
+
+    if requests is not None:
+        resp = requests.get(url, timeout=15)
+        if resp.status_code != 200 or "image" not in resp.headers.get("Content-Type", ""):
+            raise RuntimeError(f"무료 이미지 서버 응답 이상 (status={resp.status_code})")
+
+    return url
+
+
+# ============================================================================
 # 6. 이미지 생성 파이프라인 (DALL·E 3 / 로컬 시뮬레이션)
 # ============================================================================
 def call_dalle_image(prompt: str, client, quality: str = "standard", style: str = "natural"):
@@ -577,39 +694,45 @@ def run_ai_pipeline(title: str, poem: dict, model_name: str, img_quality: str, i
         used_simulation_for_analysis = True
         analysis_data = build_simulation_analysis(poem, title)
 
- # ---- 2) 이미지 생성 단계 ----
+    # ---- 2) 이미지 생성 단계 ----
+    # 우선순위: ① DALL·E 3 (API 키 보유 & 실제 GPT 분석 성공 시, 최고 품질)
+    #          ② 무료 이미지 생성 - Pollinations (분석 결과의 공간구도·정서 + 실제 시대(연도)·
+    #             갈래별 화풍을 반영한 영문 프롬프트로 항상 시도 가능)
+    #          ③ 로컬 PIL 시뮬레이션 (완전 오프라인/무료 서비스 장애 시 최후 대비)
     image_payload = None
     used_simulation_for_image = False
-    
-    try:
-        with st.spinner("🎨 시대적 배경을 반영하여 옛 자연 풍경을 그리는 중입니다..."):
-            import urllib.parse
-            
-            real_text = poem.get("modern", "")[:150]  
-            theme = poem.get("theme", "")             
-            period = poem.get("period", "전통 시대")   # 작품의 시대 정보 (예: 고려 시대, 조선 전기 등)
-            
-            # 💡 핵심: 고대/전통 한국 풍경 강조, 현대적 건물(no modern elements) 완전 배제, 인물 배제
-            final_prompt = f"Ancient traditional Korean landscape, historical natural scenery from {period}. Purely nature, no humans, no people, NO modern elements, no buildings. Visualizing this place and atmosphere: {theme}, {real_text}"
-            
-            # URL 인코딩 및 이미지 요청
-            encoded_prompt = urllib.parse.quote(final_prompt)
-            url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
-            
-            image_payload = {"type": "url", "data": url}
-            dalle_prompt = final_prompt 
-            
-    except Exception as e:
-        errors.append(f"무료 이미지 생성 실패 → 시뮬레이션으로 대체: {e}")
-        image_payload = None
+
+    # 분석 결과(GPT 또는 시뮬레이션)를 바탕으로 시대·화풍이 반영된 고품질 영문 프롬프트를 미리 구성
+    final_image_prompt = build_free_image_prompt(poem, title, analysis_data)
+
+    if client is not None and not used_simulation_for_analysis:
+        try:
+            with st.spinner("🎨 DALL·E 3가 수묵산수화를 그리는 중입니다..."):
+                dalle_source_prompt = analysis_data.get("dalle_prompt") or final_image_prompt
+                url = call_dalle_image(dalle_source_prompt, client, quality=img_quality, style=img_style)
+                image_payload = {"type": "url", "source": "dalle3", "data": url}
+                final_image_prompt = dalle_source_prompt
+        except Exception as e:
+            errors.append(f"DALL·E 3 이미지 생성 실패 → 무료 이미지 생성으로 대체: {e}")
+            image_payload = None
+
+    if image_payload is None:
+        try:
+            with st.spinner("🎨 작품의 시대·정서·공간 구도를 반영한 전통 풍경화를 그리는 중입니다 (무료 생성)..."):
+                url = build_free_image_url(final_image_prompt, title)
+                image_payload = {"type": "url", "source": "pollinations", "data": url}
+        except Exception as e:
+            errors.append(f"무료 이미지 생성 실패 → 로컬 시뮬레이션으로 대체: {e}")
+            image_payload = None
+
     if image_payload is None:
         used_simulation_for_image = True
         pil_img = build_simulation_image(title, poem["genre"])
-        image_payload = {"type": "pil", "data": pil_img}
+        image_payload = {"type": "pil", "source": "simulation", "data": pil_img}
 
     analysis_data["_simulated"] = used_simulation_for_analysis
     image_payload["_simulated"] = used_simulation_for_image
-    image_payload["prompt"] = dalle_prompt
+    image_payload["prompt"] = final_image_prompt
 
     st.session_state.analysis_cache[title] = analysis_data
     st.session_state.image_cache[title] = image_payload
@@ -620,7 +743,13 @@ def run_ai_pipeline(title: str, poem: dict, model_name: str, img_quality: str, i
 # 8. 결과 렌더링 함수
 # ============================================================================
 def render_analysis(data: dict):
-    
+    if data.get("_simulated"):
+        st.markdown(
+            '<div class="sim-banner">⚠️ 시뮬레이션 모드로 생성된 예시 분석입니다. '
+            'Streamlit Secrets에 <code>OPENAI_API_KEY</code>를 등록하면 실제 GPT 분석 결과가 표시됩니다.</div>',
+            unsafe_allow_html=True,
+        )
+
     st.markdown("#### 🗺️ 공간 구도 분석")
     sc = data.get("spatial_composition", {})
     c1, c2, c3 = st.columns(3)
@@ -653,14 +782,24 @@ def render_analysis(data: dict):
 
 def render_image(payload: dict):
     st.markdown("#### 🖼️ AI 생성 고전 풍경화")
+    source = payload.get("source", "unknown")
+
     if payload.get("_simulated"):
-        st.caption("⚠️ 시뮬레이션 이미지 (임시)")
+        st.caption("⚠️ 시뮬레이션 이미지 (실제 AI 생성 아님 — 무료 이미지 서비스 장애 시 자동 대체됩니다)")
+    elif source == "dalle3":
+        st.caption("🎨 DALL·E 3로 생성된 수묵산수화")
+    elif source == "pollinations":
+        st.caption("🎨 무료 이미지 생성(Pollinations · flux 모델) — 작품의 실제 시대(연도)·갈래별 화풍·공간 구도를 반영했습니다.")
+
     if payload["type"] == "url":
-        st.image(payload["data"], use_container_width=True, caption="시의 내용을 반영한 AI 풍경화")
+        st.image(payload["data"], use_container_width=True, caption="AI가 생성한 이미지")
     elif payload["type"] == "pil" and payload["data"] is not None:
         st.image(payload["data"], use_container_width=True, caption="시뮬레이션 이미지")
     else:
         st.info("이미지를 표시할 수 없습니다. Pillow 패키지 설치 상태를 확인해 주세요.")
+
+    if source == "pollinations" and not payload.get("_simulated"):
+        st.caption("💡 마음에 드는 이미지가 아니라면 상단의 '다시 분석하기' 버튼을 눌러 새 이미지를 받아볼 수 있습니다.")
 
     with st.expander("🔍 생성에 사용된 영문 프롬프트 보기"):
         st.code(payload.get("prompt", ""), language="text")
