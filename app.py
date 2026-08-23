@@ -577,19 +577,20 @@ def run_ai_pipeline(title: str, poem: dict, model_name: str, img_quality: str, i
         used_simulation_for_analysis = True
         analysis_data = build_simulation_analysis(poem, title)
 
-  # ---- 2) 이미지 생성 단계 ----
+ # ---- 2) 이미지 생성 단계 ----
     image_payload = None
     used_simulation_for_image = False
     
     try:
-        with st.spinner("🎨 인물을 제외하고 시의 풍경과 배경을 그리는 중입니다..."):
+        with st.spinner("🎨 시대적 배경을 반영하여 옛 자연 풍경을 그리는 중입니다..."):
             import urllib.parse
             
-            real_text = poem.get("modern", "")[:200]  # 현대어 풀이 내용
-            theme = poem.get("theme", "")             # 시의 주제
+            real_text = poem.get("modern", "")[:150]  
+            theme = poem.get("theme", "")             
+            period = poem.get("period", "전통 시대")   # 작품의 시대 정보 (예: 고려 시대, 조선 전기 등)
             
-            # 💡 핵심: '인물 없이 자연 풍경만(no humans, no people, empty landscape scenery)' 지시어 추가
-            final_prompt = f"Beautiful empty landscape scenery, purely nature, no humans, no people. Visualizing this atmosphere and place: {theme}, {real_text}"
+            # 💡 핵심: 고대/전통 한국 풍경 강조, 현대적 건물(no modern elements) 완전 배제, 인물 배제
+            final_prompt = f"Ancient traditional Korean landscape, historical natural scenery from {period}. Purely nature, no humans, no people, NO modern elements, no buildings. Visualizing this place and atmosphere: {theme}, {real_text}"
             
             # URL 인코딩 및 이미지 요청
             encoded_prompt = urllib.parse.quote(final_prompt)
