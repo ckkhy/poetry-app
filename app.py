@@ -652,11 +652,11 @@ def render_analysis(data: dict):
 
 
 def render_image(payload: dict):
-    st.markdown("#### 🖼️ AI 생성 수묵산수화")
+    st.markdown("#### 🖼️ AI 생성 고전 풍경화")
     if payload.get("_simulated"):
-        st.caption("⚠️ 시뮬레이션 이미지 (실제 DALL·E 3 호출 아님)")
+        st.caption("⚠️ 시뮬레이션 이미지 (임시)")
     if payload["type"] == "url":
-        st.image(payload["data"], use_container_width=True, caption="DALL·E 3 생성 이미지")
+        st.image(payload["data"], use_container_width=True, caption="시의 내용을 반영한 AI 풍경화")
     elif payload["type"] == "pil" and payload["data"] is not None:
         st.image(payload["data"], use_container_width=True, caption="시뮬레이션 이미지")
     else:
