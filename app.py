@@ -388,12 +388,20 @@ def api_key_available() -> bool:
 
 
 @st.cache_resource(show_spinner=False)
-def get_client(_api_key: str):
-    """OpenAI 클라이언트를 생성. 실패 시 None을 반환하여 시뮬레이션 모드로 전환."""
-    if OpenAI is None or not _api_key:
+def get_client(api_key: str):
+    """OpenAI 클라이언트를 생성. 실패 시 None을 반환하여 시뮬레이션 모드로 전환.
+
+    주의: 캐시 키에 api_key(문자열)를 그대로 포함시켜야 합니다.
+    이전에는 인자명이 `_api_key`였는데, Streamlit은 언더스코어(_)로 시작하는
+    인자를 캐시 키 계산에서 제외합니다. 그 결과 이 함수가 처음 호출될 때의
+    반환값(예: 키가 아직 없어서 None)이 그대로 캐시되어, 이후 실제 키를 넣고
+    다시 호출해도 캐시된 이전 결과(None)를 계속 반환하는 버그가 있었습니다.
+    api_key는 단순 문자열이라 해시가 가능하므로 언더스코어를 뺀 것입니다.
+    """
+    if OpenAI is None or not api_key:
         return None
     try:
-        return OpenAI(api_key=_api_key)
+        return OpenAI(api_key=api_key)
     except Exception:
         return None
 
