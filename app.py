@@ -587,7 +587,9 @@ def run_ai_pipeline(title: str, poem: dict, model_name: str, img_quality: str, i
     try:
         with st.spinner("🎨 무료 AI가 수묵산수화를 그리는 중입니다..."):
             import urllib.parse
-            encoded_prompt = urllib.parse.quote(f"Traditional Korean ink wash painting, {dalle_prompt}")
+            # 시의 내용을 먼저 강조하고, 뒤에 수묵화 스타일을 덧붙입니다.
+            final_prompt = f"{dalle_prompt}, Korean ink wash painting style, delicate brushwork, misty atmosphere"
+            encoded_prompt = urllib.parse.quote(final_prompt)
             url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
             image_payload = {"type": "url", "data": url}
     except Exception as e:
