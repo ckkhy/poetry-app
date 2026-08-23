@@ -584,15 +584,15 @@ def run_ai_pipeline(title: str, poem: dict, model_name: str, img_quality: str, i
 
     image_payload = None
     used_simulation_for_image = False
-    if client is not None and not used_simulation_for_analysis:
-        try:
-            with st.spinner("🎨 DALL·E 3가 수묵산수화를 그리는 중입니다..."):
-                url = call_dalle_image(dalle_prompt, client, quality=img_quality, style=img_style)
-                image_payload = {"type": "url", "data": url}
-        except Exception as e:
-            errors.append(f"DALL·E 3 이미지 생성 실패 → 시뮬레이션으로 대체: {e}")
-            image_payload = None
-
+    try:
+        with st.spinner("🎨 무료 AI가 수묵산수화를 그리는 중입니다..."):
+            import urllib.parse
+            encoded_prompt = urllib.parse.quote(f"Traditional Korean ink wash painting, {dalle_prompt}")
+            url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
+            image_payload = {"type": "url", "data": url}
+    except Exception as e:
+        errors.append(f"무료 이미지 생성 실패 → 시뮬레이션으로 대체: {e}")
+        image_payload = None
     if image_payload is None:
         used_simulation_for_image = True
         pil_img = build_simulation_image(title, poem["genre"])
