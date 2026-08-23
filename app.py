@@ -611,13 +611,7 @@ def run_ai_pipeline(title: str, poem: dict, model_name: str, img_quality: str, i
 # 8. 결과 렌더링 함수
 # ============================================================================
 def render_analysis(data: dict):
-    if data.get("_simulated"):
-        st.markdown(
-            '<div class="sim-banner">⚠️ 시뮬레이션 모드로 생성된 예시 분석입니다. '
-            'Streamlit Secrets에 <code>OPENAI_API_KEY</code>를 등록하면 실제 GPT 분석 결과가 표시됩니다.</div>',
-            unsafe_allow_html=True,
-        )
-
+    
     st.markdown("#### 🗺️ 공간 구도 분석")
     sc = data.get("spatial_composition", {})
     c1, c2, c3 = st.columns(3)
