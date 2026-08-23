@@ -577,27 +577,25 @@ def run_ai_pipeline(title: str, poem: dict, model_name: str, img_quality: str, i
         used_simulation_for_analysis = True
         analysis_data = build_simulation_analysis(poem, title)
 
-   # ---- 2) 이미지 생성 단계 ----
+  # ---- 2) 이미지 생성 단계 ----
     image_payload = None
     used_simulation_for_image = False
     
     try:
-        with st.spinner("🎨 시의 실제 내용과 주제를 바탕으로 이미지를 그리는 중입니다..."):
+        with st.spinner("🎨 인물을 제외하고 시의 풍경과 배경을 그리는 중입니다..."):
             import urllib.parse
             
-            # 💡 핵심: 가짜 데이터를 무시하고, 시의 '현대어 풀이'와 '주제'를 직접 가져옵니다.
             real_text = poem.get("modern", "")[:200]  # 현대어 풀이 내용
             theme = poem.get("theme", "")             # 시의 주제
             
-            # 시의 실제 내용을 영어로 번역하듯 전달하여 AI가 자유롭게 그리도록 합니다.
-            final_prompt = f"An emotional and beautiful illustration about this theme: {theme}, {real_text}"
+            # 💡 핵심: '인물 없이 자연 풍경만(no humans, no people, empty landscape scenery)' 지시어 추가
+            final_prompt = f"Beautiful empty landscape scenery, purely nature, no humans, no people. Visualizing this atmosphere and place: {theme}, {real_text}"
             
-            # URL에 넣을 수 있게 변환
+            # URL 인코딩 및 이미지 요청
             encoded_prompt = urllib.parse.quote(final_prompt)
             url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
             
             image_payload = {"type": "url", "data": url}
-            # 아래 prompt에는 화면에 보여줄 프롬프트를 저장합니다.
             dalle_prompt = final_prompt 
             
     except Exception as e:
