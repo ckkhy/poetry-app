@@ -577,25 +577,29 @@ def run_ai_pipeline(title: str, poem: dict, model_name: str, img_quality: str, i
         used_simulation_for_analysis = True
         analysis_data = build_simulation_analysis(poem, title)
 
-    # ---- 2) 이미지 생성 단계 ----
-    dalle_prompt = analysis_data.get("dalle_prompt", "").strip()
-    if not dalle_prompt:
-        dalle_prompt = build_simulation_analysis(poem, title)["dalle_prompt"]
-
+   # ---- 2) 이미지 생성 단계 ----
     image_payload = None
     used_simulation_for_image = False
+    
     try:
-        # 🎨 스피너 문구도 "시의 내용에 맞는 이미지를 그리는 중입니다..."로 변경합니다.
-        with st.spinner("🎨 시의 내용에 맞는 이미지를 그리는 중입니다..."):
+        with st.spinner("🎨 시의 실제 내용과 주제를 바탕으로 이미지를 그리는 중입니다..."):
             import urllib.parse
             
-            # ⭐ 핵심 수정: f"Traditional Korean ink wash painting, {dalle_prompt}" 나 덧붙이는 스타일 없이
-            # 오직 dalle_prompt(시의 내용 분석)만 사용하여 URL 인코딩 ⭐
-            # 만약 dalle_prompt 내에 'photorealistic'이나 'anime style' 등이 포함되어 있다면 해당 스타일로 생성될 것입니다.
-            encoded_prompt = urllib.parse.quote(dalle_prompt)
+            # 💡 핵심: 가짜 데이터를 무시하고, 시의 '현대어 풀이'와 '주제'를 직접 가져옵니다.
+            real_text = poem.get("modern", "")[:200]  # 현대어 풀이 내용
+            theme = poem.get("theme", "")             # 시의 주제
             
+            # 시의 실제 내용을 영어로 번역하듯 전달하여 AI가 자유롭게 그리도록 합니다.
+            final_prompt = f"An emotional and beautiful illustration about this theme: {theme}, {real_text}"
+            
+            # URL에 넣을 수 있게 변환
+            encoded_prompt = urllib.parse.quote(final_prompt)
             url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
+            
             image_payload = {"type": "url", "data": url}
+            # 아래 prompt에는 화면에 보여줄 프롬프트를 저장합니다.
+            dalle_prompt = final_prompt 
+            
     except Exception as e:
         errors.append(f"무료 이미지 생성 실패 → 시뮬레이션으로 대체: {e}")
         image_payload = None
